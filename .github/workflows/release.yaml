@@ -1,0 +1,199 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.22'
+
+      - name: Cache Go modules
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-1.22-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-1.22-
+
+      - name: Get version
+        id: get_version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+
+      - name: Build binaries
+        run: |
+          export VERSION=${{ steps.get_version.outputs.VERSION }}
+          make build-all-platforms
+
+      - name: Generate checksums
+        run: |
+          cd dist
+          sha256sum * > checksums.txt
+
+      - name: Create simple binary name symlinks
+        run: |
+          cd dist
+          # Create simple names for easier downloads
+          ln -sf helm-browser-linux helm-browser
+          ln -sf helm-browser-darwin-amd64 helm-browser-darwin
+          ln -sf helm-browser-darwin-arm64 helm-browser-darwin-arm64
+          ln -sf helm-browser-windows.exe helm-browser-windows
+
+      - name: Generate Release Notes
+        id: generate_notes
+        run: |
+          # Get the previous tag
+          PREVIOUS_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          
+          # Generate changelog
+          if [ ! -z "$PREVIOUS_TAG" ]; then
+            echo "CHANGELOG<<EOF" >> $GITHUB_OUTPUT
+            echo "## What's Changed" >> $GITHUB_OUTPUT
+            echo "" >> $GITHUB_OUTPUT
+            git log --pretty=format:"* %s (%h)" $PREVIOUS_TAG..HEAD >> $GITHUB_OUTPUT
+            echo "" >> $GITHUB_OUTPUT
+            echo "EOF" >> $GITHUB_OUTPUT
+          else
+            echo "CHANGELOG=Initial release" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ steps.get_version.outputs.VERSION }}
+          release_name: Release ${{ steps.get_version.outputs.VERSION }}
+          body: |
+            # Helm Chart Browser ${{ steps.get_version.outputs.VERSION }}
+            
+            A beautiful, interactive terminal UI for browsing and downloading Helm chart values.
+            
+            ## 📦 Installation
+            
+            ### Quick Download (Recommended)
+            ```bash
+            # Linux
+            curl -L https://github.com/tankibaj/helm-browser/releases/latest/download/helm-browser-linux -o helm-browser
+            chmod +x helm-browser
+            
+            # macOS (Intel)
+            curl -L https://github.com/tankibaj/helm-browser/releases/latest/download/helm-browser-darwin-amd64 -o helm-browser
+            chmod +x helm-browser
+            
+            # macOS (Apple Silicon)
+            curl -L https://github.com/tankibaj/helm-browser/releases/latest/download/helm-browser-darwin-arm64 -o helm-browser
+            chmod +x helm-browser
+            
+            # Windows (PowerShell)
+            Invoke-WebRequest -Uri "https://github.com/tankibaj/helm-browser/releases/latest/download/helm-browser-windows.exe" -OutFile "helm-browser.exe"
+            ```
+            
+            ### Using Go Install
+            ```bash
+            go install github.com/tankibaj/helm-browser@${{ steps.get_version.outputs.VERSION }}
+            ```
+            
+            ## 🎯 Usage
+            ```bash
+            ./helm-browser
+            ```
+            
+            ${{ steps.generate_notes.outputs.CHANGELOG }}
+            
+            ## 📊 Checksums
+            Download `checksums.txt` to verify file integrity.
+            
+            ---
+            **Full Changelog**: https://github.com/tankibaj/helm-browser/compare/${{ steps.get_version.outputs.VERSION }}
+          draft: false
+          prerelease: false
+
+      # Upload each binary as a release asset
+      - name: Upload Linux Binary
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./dist/helm-browser-linux
+          asset_name: helm-browser-linux
+          asset_content_type: application/octet-stream
+
+      - name: Upload Linux ARM64 Binary
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./dist/helm-browser-linux-arm64
+          asset_name: helm-browser-linux-arm64
+          asset_content_type: application/octet-stream
+
+      - name: Upload macOS AMD64 Binary
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./dist/helm-browser-darwin-amd64
+          asset_name: helm-browser-darwin-amd64
+          asset_content_type: application/octet-stream
+
+      - name: Upload macOS ARM64 Binary
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./dist/helm-browser-darwin-arm64
+          asset_name: helm-browser-darwin-arm64
+          asset_content_type: application/octet-stream
+
+      - name: Upload Windows Binary
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./dist/helm-browser-windows.exe
+          asset_name: helm-browser-windows.exe
+          asset_content_type: application/octet-stream
+
+      - name: Upload Generic Binary (Linux)
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./dist/helm-browser
+          asset_name: helm-browser
+          asset_content_type: application/octet-stream
+
+      - name: Upload Checksums
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./dist/checksums.txt
+          asset_name: checksums.txt
+          asset_content_type: text/plain
