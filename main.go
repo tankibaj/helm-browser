@@ -623,7 +623,15 @@ func (m model) View() string {
 }
 
 // the main is the entry point of the Helm Chart Browser application
+// version is set at build time via -ldflags by GoReleaser.
+var version = "dev"
+
 func main() {
+	if len(os.Args) > 1 && (os.Args[1] == "-v" || os.Args[1] == "--version" || os.Args[1] == "version") {
+		fmt.Println("helm-browser", version)
+		return
+	}
+
 	// Check if helm is installed
 	if _, err := exec.LookPath("helm"); err != nil {
 		_, _ = fmt.Fprintf(os.Stderr, "Error: helm command not found. Please install Helm first.\n")
